@@ -1,0 +1,1253 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>8Ball Pool by Fred & Rui</title>
+    <link rel="stylesheet" href="./css/main.css">
+    <style>
+        html,
+        body {
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="p1">Player 1: Ball Type ?</div>
+    <div id="p2">Player 2: Ball Type ?</div>
+
+    <div id="victory"></div>
+
+    <script src="./js/quadtree.js"></script>
+
+  <script type="module">
+  import * as THREE from './js/three.module.js';
+
+import {
+    PointerLockControls
+} from './js/PointerLockControls.js';
+
+import {
+    GLTFLoader
+} from 'https://threejs.org/examples/jsm/loaders/GLTFLoader.js';
+
+import {
+    OBJLoader
+} from 'https://threejs.org/examples/jsm/loaders/OBJLoader.js';
+
+import {
+    MTLLoader
+} from 'https://threejs.org/examples/jsm/loaders/MTLLoader.js';
+
+//import Quadtree from './js/quadtree.js';
+
+
+function promisifyLoader(loader, onProgress) {
+
+    function promiseLoader(url) {
+
+        return new Promise((resolve, reject) => {
+
+            loader.load(url, resolve, onProgress, reject);
+
+        });
+    }
+
+    return {
+        originalLoader: loader,
+        load: promiseLoader,
+    };
+
+}
+
+
+
+let keyForward = false;
+let keyBackward = false;
+let keyLeft = false;
+let keyRight = false;
+let keyRotate = false;
+let keyAntirotate = false;
+let globalcontrols = 0;
+let gameStateGlobal = null;
+let cueaudio = new Audio('sounds/taco.wav');
+let ballaudio = new Audio('sounds/bola.wav');
+let pocketaudio = new Audio('sounds/pocketball.mp3')
+let objs;
+
+
+
+class Obj extends THREE.Object3D {
+    constructor(x, y, z) {
+        super();
+        this.position.set(x, y, z)
+    }
+
+    update() {}
+}
+
+class Light extends THREE.Object3D {
+    constructor(position) {
+        super();
+    }
+    getLight() {
+        return this.light;
+    }
+}
+
+
+/*
+ * Classe que simula a luz da Lua
+ */
+class MoonLight extends Light {
+    constructor(position) {
+        super(position);
+        this.light = new THREE.PointLight("#ffffff", 0.6, 1000, 0.5);
+        this.light.position.set(position.x, position.y, position.z);
+        this.light.castShadow = true;
+
+        this.light.shadow.camera.near = 6;
+        this.light.shadow.camera.far = 2000;
+    }
+}
+
+class Cave extends Obj {
+    constructor(position) {
+        super();
+
+        this.addCave(position.x, position.y, position.z);
+        this.mesh.rotation.y = Math.PI;
+    }
+
+    addCave(x, y, z) {
+        this.mesh = new THREE.Object3D();
+
+        let geometry = new THREE.SphereGeometry(200, 200, 100); //radius, widthSegments, heightSegments
+        let material = new THREE.MeshPhongMaterial({
+            color: '#D3D3D3',
+            side: THREE.DoubleSide
+        });
+
+        let blob = (new THREE.Mesh(geometry, material));
+        geometry = new THREE.CylinderGeometry(50, 50, 200, 16);
+        material = new THREE.MeshPhongMaterial({
+            color: '#D3D3D3',
+            side: THREE.DoubleSide
+        });
+        let tube = (new THREE.Mesh(geometry, material));
+        tube.rotation.z += Math.PI / 2;
+        tube.position.x += 100;
+        this.mesh.add(blob);
+        this.mesh.add(tube);
+        this.mesh.position.set(x, y, z);
+    }
+
+    addEntrance(x, y, z) {
+
+    }
+
+    getMesh() {
+        return this.mesh;
+    }
+}
+
+class Bonfire extends Obj {
+    constructor(position) {
+        super();
+        this.addBonfire(position.x, position.y, position.z);
+    }
+
+    // Método para criar o objecto composto Fogueira (criando troncos, pedras, fogo e luz proveniente do fogo)
+    addBonfire(x, y, z) {
+        this.mesh = new THREE.Object3D();
+
+        this.addLog(-2, 7, 2, 0.05, 0, 0);
+        this.addLog(2, 7, -2, 0.95, 0, 0);
+        this.addLog(0, 3, 0, 0, 0, 0.25);
+        this.addRock(0, 2, 20);
+        this.addRock(10, 2, 16);
+        this.addRock(19, 2, 10);
+        this.addRock(20, 2, -1);
+        this.addRock(18, 2, -12);
+        this.addRock(10, 2, -18);
+        this.addRock(0, 2, -20);
+        this.addRock(-10, 2, -16);
+        this.addRock(-19, 2, -10);
+        this.addRock(-20, 2, 1);
+        this.addRock(-18, 2, 12);
+        this.addRock(-10, 2, 18);
+        this.addAsh(0, 0, 0);
+        this.addFire(0, 10, 0, 0.25, 0, 0, false);
+        this.addFire(0, 10, 0, 0, 0.25, 0, false);
+        this.addFire(0, 10, 0, 0, 0, 0.25, false);
+        this.addFire(0, 10, 0, 0.25, 0, 0, true);
+        this.addFire(0, 10, 0, 0, 0.25, 0, true);
+        this.addFire(0, 10, 0, 0, 0, 0.25, true);
+        this.fireLight(0, 10, 0);
+
+        this.mesh.position.set(x, y, z);
+    }
+
+    // Luz do fogo
+    fireLight(x, y, z) {
+        let light = new THREE.PointLight('#FF9217', 1.5, 150, 2); //Color, intensity, distance, decay
+        light.position.set(x, y, z);
+        light.castShadow = true;
+
+        light.shadow.camera.near = 6;
+        light.shadow.camera.far = 150;
+
+        this.mesh.add(light);
+    }
+
+    // Fogo
+    addFire(x, y, z, rX, rY, rZ, rot) {
+        let geometry = new THREE.PlaneGeometry(30, 30); //width, height
+
+        let texture = new THREE.TextureLoader().load('texture/fire.png');
+        texture.wrapS = THREE.RepeatWrapping;
+        texture.wrapT = THREE.RepeatWrapping;
+        texture.repeat.set(1, 1);
+        let material = new THREE.MeshBasicMaterial({
+            map: texture,
+            transparent: true,
+            depthWrite: false,
+            opacity: 0.5,
+            /*depthTest: false ao colocar false a textura fica por cima tudo */
+        });
+        material.side = THREE.DoubleSide;
+        let mesh = new THREE.Mesh(geometry, material);
+
+        mesh.rotation.x = Math.PI / 2;
+        mesh.rotation.x += Math.PI * 2 * rX;
+        mesh.rotation.y += Math.PI * 2 * rY;
+        mesh.rotation.z += Math.PI * 2 * rZ;
+
+        mesh.position.set(x, y, z);
+        mesh.name = "Fire";
+        mesh.rotopt = rot;
+        this.mesh.add(mesh);
+    }
+
+    // Cinza na fogueira
+    addAsh(x, y, z) {
+        let geometry = new THREE.SphereGeometry(20, 32, 32); //radius, width, height
+        let texture = new THREE.TextureLoader().load('texture/ashes.jpg');
+        texture.wrapS = THREE.RepeatWrapping;
+        texture.wrapT = THREE.RepeatWrapping;
+        texture.repeat.set(8, 8);
+        let material = new THREE.MeshPhongMaterial({
+            map: texture,
+            side: THREE.DoubleSide
+        });
+
+        let mesh = new THREE.Mesh(geometry, material);
+
+        mesh.position.set(x, y, z);
+        mesh.scale.set(1, 0.01, 1);
+        this.mesh.add(mesh);
+    }
+
+    // Cria pedras à volta da fogueira
+    addRock(x, y, z) {
+        let geometry = new THREE.SphereGeometry(5, 32, 32); //radius, width, height
+        let material = new THREE.MeshPhongMaterial({
+            color: '#666666'
+        });
+        let mesh = new THREE.Mesh(geometry, material);
+
+        mesh.position.set(x, y, z);
+        mesh.scale.set(1, 0.5, 1);
+        this.mesh.add(mesh);
+
+        mesh.castShadow = true;
+
+    }
+
+    // Cria troncos de madeira na fogueira
+    addLog(x, y, z, rX, rY, rZ) {
+        let geometry = new THREE.CylinderGeometry(3, 3, 30, 6); //radiusTop, radiusBottom, height, radialSegments
+        let material = new THREE.MeshPhongMaterial({
+            color: '#814808'
+        });
+        let mesh = new THREE.Mesh(geometry, material);
+        mesh.position.set(x, y, z);
+        mesh.rotation.x = Math.PI / 2;
+        mesh.rotation.x += Math.PI * 2 * rX;
+        mesh.rotation.y += Math.PI * 2 * rY;
+        mesh.rotation.z += Math.PI * 2 * rZ;
+        this.mesh.add(mesh);
+    }
+
+    update() {
+        this.mesh.traverse(function(child) {
+            if (child instanceof THREE.Object3D) {
+
+                if (child.name == 'Fire' && child.rotopt == true) {
+                    child.rotation.z += .1;
+                    let scalethis = child.scale;
+                    child.scale.set(((child.scale.x + 0.1 * (Math.random() - 0.5)) + 0.1) / 1.1, ((child.scale.y + 0.1 * (Math.random() - 0.5)) + 0.1) / 1.1, ((child.scale.z + 0.1 * (Math.random() - 0.5)) + 0.1) / 1.1);
+                }
+                if (child.name == 'Fire' && child.rotopt == false) {
+                    child.rotation.z -= .1;
+                    let scalethis = child.scale;
+                    child.scale.set(((child.scale.x + 0.1 * (Math.random() - 0.5)) + 0.1) / 1.1, ((child.scale.y + 0.1 * (Math.random() - 0.5)) + 0.1) / 1.1, ((child.scale.z + 0.1 * (Math.random() - 0.5)) + 0.1) / 1.1);
+
+                }
+            }
+        });
+    }
+
+    getMesh() {
+        return this.mesh;
+    }
+}
+
+/*
+ * Classe que instancia o Chão
+ */
+class Floor extends Obj {
+
+    constructor(position) {
+        super();
+
+        let floorTexture = new THREE.TextureLoader().load('models/grass.png');
+        floorTexture.wrapS = floorTexture.wrapT = THREE.RepeatWrapping;
+        floorTexture.repeat.set(300, 300);
+        let floorMaterial = new THREE.MeshPhongMaterial({
+            map: floorTexture,
+            side: THREE.DoubleSide
+        });
+        var floorGeometry = new THREE.PlaneGeometry(10000, 10000, 1, 1);
+        this.mesh = new THREE.Mesh(floorGeometry, floorMaterial);
+        this.mesh.receiveShadow = true;
+        this.mesh.rotation.x = -Math.PI / 2;
+        this.mesh.position.set(position.x, position.y, position.z);
+
+
+    }
+
+    getMesh() {
+        return this.mesh;
+    }
+}
+
+class Cue extends Obj {
+    constructor(position) {
+        super();
+        this.branca = position.branca;
+        this.mesh = new THREE.Object3D();
+        this.Cue = this.addCue(this.branca.position.x, this.branca.position.y, this.branca.position.z);
+        this.mesh.add(this.Cue);
+
+        this.mesh.position.set(this.branca.mesh.position.x, this.branca.mesh.position.y, this.branca.mesh.position.z);
+    }
+
+    hideCue(x, y, z) {
+
+        if (this.Cue.scale.x === 0)
+            this.Cue.scale.set(1, 1, 1);
+        else
+            this.Cue.scale.set(0, 0, 0);
+
+        this.mesh.position.set(this.branca.mesh.position.x, this.branca.mesh.position.y, this.branca.mesh.position.z);
+
+    }
+
+    update() {
+        if (this.polling && this.Cue.position.z < 30) {
+            this.Cue.position.z += 0.5;
+        }
+        if (this.Cue.scale.x == 0)
+            return 0;
+        if (keyAntirotate)
+            this.mesh.rotation.y += 0.03;
+        if (keyRotate)
+            this.mesh.rotation.y -= 0.03;
+    }
+
+    addCue(x, y, z) {
+        this.keyEvent = this.keyEvent.bind(this);
+        let cueMesh = new THREE.Object3D();
+        this.polling = false;
+
+        document.body.addEventListener('mousedown', this.keyEvent);
+        document.body.addEventListener('mouseup', this.keyEvent);
+
+        let mtl = new MTLLoader();
+        mtl.setPath("models/");
+        mtl.load('10522_Pool_Cue_v1_L3.mtl', function(materials) {
+
+            materials.preload();
+
+            let obj = new OBJLoader();
+            obj.setMaterials(materials);
+            obj.setPath("models/");
+            obj.load('10522_Pool_Cue_v1_L3.obj', function(object) {
+                let mesh = object;
+                mesh.rotation.y = Math.PI;
+                mesh.position.set(0, 0.5, 108);
+                mesh.scale.set(0.7, 0.7, 0.7);
+                cueMesh.add(mesh);
+            }.bind(this));
+
+        }.bind(this));
+        return cueMesh;
+    }
+
+    keyEvent(arg) {
+        if (globalcontrols.isLocked === false)
+            return 0;
+        if (this.Cue.scale.x === 0)
+            return 0;
+        if (arg.type === 'mousedown') {
+            this.polling = true;
+        }
+
+        if (arg.type === 'mouseup') {
+            cueaudio.play();
+            gameStateGlobal.ballHit = true;
+            console.log(gameStateGlobal);
+            this.polling = false;
+            let impact = Math.pow(this.Cue.position.z / 2, 1.5);
+            let speed = new THREE.Vector3(0, 0, -1);
+            speed.applyAxisAngle(new THREE.Vector3(0, 1, 0), this.mesh.rotation.y);
+            speed.multiplyScalar(impact);
+            this.branca.velocity = speed;
+            this.Cue.position.z = 0;
+        }
+    }
+
+    getMesh() {
+        return this.mesh;
+    }
+}
+
+class Tree extends Obj {
+    constructor(position) {
+        super();
+
+        this.addTree(position.x, position.y, position.z);
+    }
+
+    addTree(x, y, z) {
+        this.mesh = new THREE.Object3D();
+
+        this.addTrunk(0, 20, 0);
+        this.addCopa(0, 99, 0);
+
+        this.mesh.position.set(x, y, z);
+    }
+
+    // Cria o tronco da árvore
+    addTrunk(x, y, z) {
+        let geometry = new THREE.CylinderGeometry(10, 10, 100, 6); //radiusTop, radiusBottom, height, radialSegments
+        let material = new THREE.MeshPhongMaterial({
+            color: '#814808',
+        });
+
+        let mesh = new THREE.Mesh(geometry, material);
+
+        mesh.position.set(x, y, z);
+        this.mesh.add(mesh);
+
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+    }
+
+    // Cria a copa da árvore
+    addCopa(x, y, z) {
+        let geometry = new THREE.ConeGeometry(50, 80, 32); //radius, height, radialSegments
+        let material = new THREE.MeshLambertMaterial({
+            color: '#34eb34',
+        });
+
+        let mesh = new THREE.Mesh(geometry, material);
+
+        mesh.position.set(x, y, z);
+        this.mesh.add(mesh);
+
+        mesh.castShadow = true;
+        mesh.receiveShadow = true;
+    }
+
+    getMesh() {
+        return this.mesh;
+    }
+}
+
+
+
+class Branca extends Obj {
+    constructor(position, file, radius, type, number) {
+        super();
+
+        this.file = file;
+        this.radius = radius;
+        this.type = type;
+        this.number = number;
+        this.in = false;
+
+        this.velocity = new THREE.Vector3(0, 0, 0);
+        this.mesh = new THREE.Object3D();
+        let ballMaterial;
+        if (file.charAt(0) === "#")
+            ballMaterial = new THREE.MeshPhongMaterial({
+                color: file,
+                side: THREE.DoubleSide
+            });
+        else {
+            let ballTexture = new THREE.TextureLoader().load(file);
+
+            ballTexture.wrapS = ballTexture.wrapT = THREE.RepeatWrapping;
+            ballTexture.repeat.set(1, 1);
+
+            ballMaterial = new THREE.MeshPhongMaterial({
+                map: ballTexture,
+                side: THREE.DoubleSide
+            });
+        }
+
+        let geometry = new THREE.SphereGeometry(this.radius, 40, 40); //radius, widthSegments, heightSegments
+        let material = new THREE.MeshPhongMaterial({
+            color: '#D3D3D3',
+            side: THREE.DoubleSide
+        });
+
+        this.bloba = new THREE.Mesh(geometry, ballMaterial);
+        this.bloba.position.set(0, 0, 0);
+        this.bloba.castShadow = true;
+        this.mesh.add(this.bloba);
+        this.mesh.position.set(position.x, position.y, position.z);
+    }
+    update() {
+        this.mesh.position.add(this.velocity.clone().multiplyScalar(0.2));
+        this.velocity.multiplyScalar(0.99);
+
+        let rotateAxis = this.velocity.clone().applyAxisAngle(new THREE.Vector3(0, 1, 0), Math.PI / 2);
+        rotateAxis.normalize();
+
+        this.mesh.rotateOnAxis(rotateAxis, this.velocity.length() * 0.04);
+    }
+
+    getMesh() {
+        return this.mesh;
+    }
+}
+
+class Hole extends Obj {
+    constructor(position) {
+        super();
+
+        this.radius = 3;
+        this.mesh = new THREE.Object3D();
+
+        this.mesh.position.set(position.x, position.y, position.z);
+    }
+
+    getMesh() {
+        return this.mesh;
+    }
+}
+
+
+class tableLight extends Light {
+    constructor(position, color) {
+        super(position);
+
+        this.light = new THREE.PointLight(color, 6, 100, 2);
+        this.light.position.set(position.x, position.y, position.z);
+        this.light.castShadow = true;
+    }
+}
+/*
+ * Classe que faz load
+ */
+class PoolTable extends Obj {
+    constructor(position) {
+        super();
+        this.mesh = new THREE.Object3D();
+
+        let mtl = new MTLLoader();
+        mtl.setPath("models/");
+        mtl.load('poolTableNoBalls.mtl', function(materials) {
+
+            materials.preload();
+
+            let obj = new OBJLoader();
+            obj.setMaterials(materials);
+            obj.setPath("models/");
+            obj.load('poolTableNoBalls.obj', function(object) {
+                let mesh = object;
+                mesh.castShadow = true;
+                mesh.receiveShadow = true;
+                mesh.traverse(function(child) {
+                    child.castShadow = true;
+                });
+                mesh.traverse(function(child) {
+                    child.receiveShadow = true;
+                });
+                mesh.position.set(0, 10, 0);
+                mesh.scale.set(0.4, 0.4, 0.4);
+                this.mesh.add(mesh);
+            }.bind(this));
+
+        }.bind(this));
+
+        this.mesh.position.set(position.x, position.y, position.z);
+    }
+
+
+    getMesh() {
+        return this.mesh;
+    }
+}
+
+class Seagull extends Obj {
+    constructor(position) {
+        super();
+        this.mesh = new THREE.Object3D();
+        this.seagull;
+        this.time = 0;
+
+        let mtl = new MTLLoader();
+        mtl.setPath("models/");
+        mtl.load('seagull.mtl', function(materials) {
+
+            materials.preload();
+
+            let obj = new OBJLoader();
+            obj.setMaterials(materials);
+            obj.setPath("models/");
+            obj.load('seagull.obj', function(object) {
+                let mesh = object;
+                mesh.castShadow = true;
+                mesh.receiveShadow = true;
+                mesh.traverse(function(child) {
+                    child.castShadow = true;
+                });
+                mesh.traverse(function(child) {
+                    child.receiveShadow = true;
+                });
+                mesh.position.set(0, 0, 0);
+                mesh.scale.set(0.03, 0.03, 0.03);
+                this.mesh.add(mesh);
+                this.seagull = mesh;
+
+            }.bind(this));
+
+        }.bind(this));
+
+        this.curve = new THREE.SplineCurve3([
+            new THREE.Vector3(-100, 1, 0),
+            new THREE.Vector3(0, 1, 100),
+            new THREE.Vector3(100, 1, 0),
+            new THREE.Vector3(0, 1, -100),
+            new THREE.Vector3(-100, 1, 0)
+        ]);
+
+        this.mesh.position.set(position.x, position.y, position.z);
+    }
+
+    update() {
+        if (typeof this.seagull === 'undefined') {
+            return 0;
+        }
+        this.time += 0.005;
+        this.time = (this.time >= 1) ? this.time - 1 : this.time;
+        let pt = this.curve.getPoint(this.time);
+        this.seagull.position.set(pt.x, pt.y, pt.z);
+        let axis = new THREE.Vector3();
+        let tangent = this.curve.getTangent(this.time).normalize();
+
+        axis.crossVectors(new THREE.Vector3(1, 0, 0), tangent).normalize();
+
+        let radians = Math.acos(new THREE.Vector3(1, 0, 0).dot(tangent));
+
+        this.seagull.quaternion.setFromAxisAngle(axis, radians);
+    }
+
+    getMesh() {
+        return this.mesh;
+    }
+}
+
+class Blimp extends Obj {
+    constructor(position) {
+        super();
+        this.mesh = new THREE.Object3D();
+
+        this.time = 0;
+        this.blimp;
+        let mtl = new MTLLoader();
+        mtl.setPath("models/");
+        mtl.load('blimp.mtl', function(materials) {
+
+            materials.preload();
+
+            let obj = new OBJLoader();
+            obj.setMaterials(materials);
+            obj.setPath("models/");
+            obj.load('blimp.obj', function(object) {
+                let mesh = object;
+                mesh.traverse(function(child) {
+                    child.castShadow = true;
+                });
+                mesh.traverse(function(child) {
+                    child.receiveShadow = true;
+                });
+                mesh.position.set(0, 0, 0);
+                mesh.scale.set(0.5, 0.5, 0.5);
+                this.mesh.add(mesh);
+                this.blimp = mesh;
+            }.bind(this));
+
+        }.bind(this));
+
+        this.curve = new THREE.SplineCurve3([
+            new THREE.Vector3(-1000, 1, 0),
+            new THREE.Vector3(0, 1, 1000),
+            new THREE.Vector3(1000, 1, 0),
+            new THREE.Vector3(0, 1, -1000),
+            new THREE.Vector3(-1000, 1, 0)
+        ]);
+
+        this.mesh.position.set(position.x, position.y, position.z);
+    }
+
+    update() {
+        if (typeof this.blimp === 'undefined') {
+            return 0;
+        }
+        this.time += 0.0003;
+        this.time = (this.time >= 1) ? this.time - 1 : this.time;
+        let pt = this.curve.getPoint(this.time);
+        this.blimp.position.set(pt.x, pt.y, pt.z);
+        let axis = new THREE.Vector3();
+        let tangent = this.curve.getTangent(this.time).normalize();
+
+        axis.crossVectors(new THREE.Vector3(1, 0, 0), tangent).normalize();
+
+        let radians = Math.acos(new THREE.Vector3(1, 0, 0).dot(tangent));
+
+        this.blimp.quaternion.setFromAxisAngle(axis, radians);
+    }
+
+    getMesh() {
+        return this.mesh;
+    }
+}
+
+class Application {
+    constructor() {
+        this.objects = [];
+        this.createScene();
+
+        this.ballPositions = [
+            {x: 0, y: 27, z: 22},
+            {x: 64, y: 27, z: 0},
+            {x: 64, y: 27, z: -4},
+            {x: 64, y: 27, z: -8},
+            {x: 64, y: 27, z: -12},
+            {x: 64, y: 27, z: -16},
+            {x: 64, y: 27, z: -20},
+            {x: 64, y: 27, z: -24},
+            {x: 68, y: 27, z: 0},
+            {x: 60, y: 27, z: 0},
+            {x: 60, y: 27, z: -4},
+            {x: 60, y: 27, z: -8},
+            {x: 60, y: 27, z: -12},
+            {x: 60, y: 27, z: -16},
+            {x: 60, y: 27, z: -20},
+            {x: 60, y: 27, z: -24}
+        ];
+
+        this.originalBallPositions = [
+            {x: 0, y: 27, z: 22},
+            {x: -8, y: 27, z: -38.5},
+            {x: 6.5, y: 27, z: -34.4},
+            {x: -4.5, y: 27, z: -30.9},
+            {x: -2.5, y: 27, z: -27.2},
+            {x: 0, y: 27, z: -24},
+            {x: -4, y: 27, z: -38.5},
+            {x: 2.2, y: 27, z: -34.4},
+            {x: 0, y: 27, z: -30.9},
+            {x: 2.5, y: 27, z: -27.2},
+            {x: 0, y: 27, z: -38.5},
+            {x: -2.2, y: 27, z: -34.4},
+            {x: 4.5, y: 27, z: -30.9},
+            {x: 4, y: 27, z: -38.5},
+            {x: -6.5, y: 27, z: -34.4},
+            {x: 8, y: 27, z: -38.5}
+        ]
+
+        this.gameState = {
+            "player1Ball": "",
+            "player2Ball": "",
+            "turn": "p1",
+            "firstTouchBall": "",
+            "ballInType": "",
+            "ballHit": false,
+        }
+        gameStateGlobal = this.gameState;
+    }
+
+    createScene() {
+        this.scene = new THREE.Scene();
+        this.scene.background = new THREE.Color('blue');
+        this.camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.1, 10000);
+        this.camera.position.z = 70;
+        this.camera.position.y = 70;
+        this.camera.position.x = 0;
+        this.camera.rotation.x = -Math.PI / 4;
+
+
+        this.renderer = new THREE.WebGLRenderer({
+            antialias: true
+        });
+        this.renderer.shadowMap.enabled = true;
+        this.renderer.autoClear = false;
+        this.renderer.shadowMapSoft = true;
+        this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+        this.renderer.setSize(window.innerWidth, window.innerHeight);
+
+        // função que redimensiona a janela de visualização
+        window.addEventListener('resize', () => {
+            this.renderer.setSize(window.innerWidth, window.innerHeight);
+            this.camera.aspect = window.innerWidth / window.innerHeight;
+
+            this.camera.updateProjectionMatrix();
+        });
+
+        document.body.appendChild(this.renderer.domElement);
+
+        // função que permite ao utilizador controlar a perspectiva da câmara consoante a posição do rato
+        let controls = new PointerLockControls(this.camera, this.renderer.domElement);
+        globalcontrols = controls;
+
+        document.body.addEventListener('click', () => {
+            controls.lock();
+        });
+
+        this.scene.add(controls.getObject());
+
+        // função que permite ao utilizador mover-se no mundo ao introduzir certos inputs
+        var onKeyDown = function(event) {
+
+            switch (event.keyCode) {
+
+                case 38: // up
+                case 87: // w
+                    keyForward = true;
+                    break;
+
+                case 37: // left
+                case 65: // a
+                    keyLeft = true;
+                    break;
+
+                case 40: // down
+                case 83: // s
+                    keyBackward = true;
+                    break;
+
+                case 39: // right
+                case 68: // d
+                    keyRight = true;
+                    break;
+
+                case 81: // q
+                    keyRotate = true;
+                    break;
+                case 69: // e
+                    keyAntirotate = true;
+                    break;
+                case 32: //spacebar
+                    objs.cue.hideCue();
+                    break;
+                case 82: //R
+                    this.resetPosition();
+                    break;
+            }
+
+        }.bind(this);
+
+        var onKeyUp = function(event) {
+
+            switch (event.keyCode) {
+
+                case 38: // up
+                case 87: // w
+                    keyForward = false;
+                    break;
+
+                case 37: // left
+                case 65: // a
+                    keyLeft = false;
+                    break;
+
+                case 40: // down
+                case 83: // s
+                    keyBackward = false;
+                    break;
+
+                case 39: // right
+                case 68: // d
+                    keyRight = false;
+                    break;
+
+                case 81: // q
+                    keyRotate = false;
+                    break;
+                case 69: // e
+                    keyAntirotate = false;
+                    break;
+            }
+
+        };
+
+        document.addEventListener('keydown', onKeyDown, false);
+        document.addEventListener('keyup', onKeyUp, false);
+
+        // Criação da skybox
+        let loader = new THREE.CubeTextureLoader();
+        let texture = loader.load([
+            'models/face1.png',
+            'models/face2.png',
+            'models/face3.png',
+            'models/face4.png',
+            'models/face5.png',
+            'models/face6.png',
+        ]);
+
+        this.scene.background = texture;
+
+        this.render();
+    }
+
+    turnProcess() {
+        if (typeof this.gameState === "undefined") {
+            return 0;
+        }
+        document.getElementById('victory').innerHTML = "Player " + this.gameState.turn + "'s turn!";
+        document.getElementById('victory').style.visibility = "visible";
+        if (!this.gameState.ballHit) {
+            return 0;
+        }
+        let wasMoving = false;
+        Object.values(objs).forEach((object) => {
+            if (object instanceof Branca) {
+                console.log(typeof object.velocity);
+                console.log(object);
+                if (typeof object.velocity !== "undefined" && object.velocity.length() > 0.000000001) {
+                    wasMoving = true;
+                    console.log("was moving...");
+                    return 0;
+                }
+            }
+        });
+        console.log("Play is over!");
+        let myBall = this.gameState.turn === 'p1' ? this.gameState.player1Ball : this.gameState.player2Ball;
+        if (this.gameState.firstTouchBall !== myBall) {
+            this.gameState.turn = this.gameState.turn === "p1" ? "p2" : "p1";
+            document.getElementById('victory').innerHTML = "Player " + this.gameState.turn + "'s turn!";
+            document.getElementById('victory').style.visibility = "visible";
+            this.gameState.firstTouchBall = "";
+            this.gameState.ballInType = "";
+            this.gameState.ballHit = false;
+            return 0;
+        }
+
+        if (this.gameState.ballInType !== myBall) {
+            this.gameState.turn = this.gameState.turn === "p1" ? "p2" : "p1";
+            document.getElementById('victory').innerHTML = "Player " + this.gameState.turn + "'s turn!";
+            document.getElementById('victory').style.visibility = "visible";
+            this.gameState.firstTouchBall = "";
+            this.gameState.ballInType = "";
+            this.gameState.ballHit = false;
+            return 0;
+        }
+
+        console.log("My turn continues");
+
+        this.gameState.firstTouchBall = "";
+        this.gameState.ballInType = "";
+        this.gameState.ballHit = false;
+
+    }
+
+    collisions() {
+        if (typeof objs === 'undefined') {
+            return 0;
+        }
+            let myTree = new Quadtree({x: -18.6,y: -43.8,width: 2* 18.6,height: 43.8*2}, 10, 4);
+
+            Object.values(objs).forEach((object) => {
+                if (object instanceof Branca || object instanceof Hole) {
+                    myTree.insert({
+	                    x: object.mesh.position.x,
+	                    y: object.mesh.position.y,
+	                    width:  object.radius,
+                        height:  object.radius,
+                        o : object
+                })}});
+                
+            Object.values(objs).forEach((object) => {
+                if (object instanceof Branca && !object.in) {
+                    if (object.mesh.position.z > 43.8 && (object.mesh.position.x < 17.5 && object.mesh.position.x > -17.5)) {
+                        object.velocity.z *= -1;
+                        object.mesh.position.z = 43.8;
+                    }
+                    if (object.mesh.position.z < -43.8 && (object.mesh.position.x < 17.5 && object.mesh.position.x > -17.5)) {
+                        object.velocity.z *= -1;
+                        object.mesh.position.z = -43.8;
+                    }
+
+                    if (object.mesh.position.x > 18.6 && (object.mesh.position.z < -3 && object.mesh.position.z > -42)) {
+                        object.velocity.x *= -1;
+                        object.mesh.position.x = 18.6
+                    }
+                    if (object.mesh.position.x > 18.6 && (object.mesh.position.z < 42 && object.mesh.position.z > 3)) {
+                        object.velocity.x *= -1;
+                        object.mesh.position.x = 18.6
+                    }
+
+                    if (object.mesh.position.x < -18.6 && (object.mesh.position.z < -3 && object.mesh.position.z > -42)) {
+                        object.velocity.x *= -1;
+                        object.mesh.position.x = -18.6
+                    }
+                    if (object.mesh.position.x < -18.6 && (object.mesh.position.z < 42 && object.mesh.position.z > 3)) {
+                        object.velocity.x *= -1;
+                        object.mesh.position.x = -18.6
+                    }
+                    if (object instanceof Branca && object.mesh.position.length() > 200) {
+                        object.mesh.position.set(this.ballPositions[object.number].x, this.ballPositions[object.number].y, this.ballPositions[object.number].z);
+                    }
+                    let elements = myTree.retrieve({
+                        x: object.mesh.position.x,
+	                    y: object.mesh.position.y,
+	                    width:  object.radius,
+	                    height:  object.radius
+                        });
+                    //console.log(elements);
+
+
+                    elements.map(z => z.o).forEach((other) => {
+                        if (other instanceof Branca && other != object) {
+                            let conectingvector = other.mesh.position.clone().sub(object.mesh.position)
+                            let d = conectingvector.length()
+                            if (d < object.radius + other.radius) {
+                                conectingvector.normalize();
+                                let sumVel = (other.velocity.length() + object.velocity.length()) / 2;
+                                other.velocity = conectingvector.clone().multiplyScalar(sumVel);
+                                object.velocity = conectingvector.clone().multiplyScalar(sumVel * -1);
+
+                                ballaudio.play();
+
+                                if (this.gameState.firstTouchBall === "") {
+                                    this.gameState.firstTouchBall = object.number === 0 ? other.type : object.type;
+                                }
+                            }
+                        }
+                        if (other instanceof Hole && object.file === "#fff") {
+                            let conectingvector = other.mesh.position.clone().sub(object.mesh.position)
+                            let d = conectingvector.length()
+                            if (d < object.radius + other.radius) {
+                                pocketaudio.play();
+                                conectingvector.normalize();
+                                object.mesh.position.set(0, 27, 22);
+                                object.velocity.set(0, 0, 0);
+                            }
+                        }
+
+                        if (other instanceof Hole) {
+                            let conectingvector = other.mesh.position.clone().sub(object.mesh.position)
+                            let d = conectingvector.length();
+                            if (d < object.radius + other.radius) {
+                                pocketaudio.play();
+                                conectingvector.normalize();
+                                object.mesh.position.set(this.ballPositions[object.number].x, this.ballPositions[object.number].y, this.ballPositions[object.number].z);
+
+                                object.velocity.set(0, 0, 0);
+                                object.in = true;
+                                object.mesh.rotation.set(0, 0, 0);
+
+                                if (this.gameState.player1Ball === "") {
+                                    this.gameState.player1Ball = object.type;
+                                    this.gameState.player2Ball = object.type === "solid" ? "stripe" : "solid";
+                                    document.getElementById('p1').innerHTML = "Player 1: " + this.gameState.player1Ball.charAt(0).toUpperCase() + this.gameState.player1Ball.slice(1);
+                                    document.getElementById('p2').innerHTML = "Player 2: " + this.gameState.player2Ball.charAt(0).toUpperCase() + this.gameState.player2Ball.slice(1);
+                                }
+
+                                if (this.gameState.ballInType !== object.type) {
+                                    this.gameState.ballInType = this.gameState.ballInType === "" ? object.type : "all";
+                                }
+                                console.log(this.gameState);
+                            }
+                        }
+                    })
+                }
+            });
+        
+    }
+
+    checkWin() {
+        let blackIn = false;
+        let allIn = true;
+        try {
+            Object.values(objs).forEach((object) => {
+                if (object instanceof Branca) {
+                    if (object.file === './models/ball8.jpg') {
+                        blackIn = object.in;
+                    }
+                    if (!object.in && object.file != "#fff")
+                        allIn = false;
+                }
+            })
+        } catch (err) {}
+
+        if (blackIn === true && allIn === false) {
+            console.log("Loss");
+            document.getElementById('victory').innerHTML = "Victory! Player " + this.gameState.turn.charAt(1) + " wins!"
+            document.getElementById("victory").style.visibility = "visible";
+            this.resetPosition();
+        }
+        if (blackIn === true && allIn === true) {
+            document.getElementById('victory').innerHTML = "Victory! Player " + this.gameState.turn.charAt(1) + " wins!"
+            document.getElementById("victory").style.visibility = "visible";
+            this.resetPosition();
+        }
+    }
+
+    resetPosition() {
+        Object.values(objs).forEach((object) => {
+            if (object instanceof Branca) {
+                object.mesh.position.set(this.originalBallPositions[object.number].x,
+                    this.originalBallPositions[object.number].y,
+                    this.originalBallPositions[object.number].z);
+                object.velocity.set(0, 0, 0);
+                object.in = false;
+                object.mesh.rotation.set(0, 0, 0);
+            }
+        })
+        document.getElementById('p1').innerHTML = "Player 1: Ball Type ?";
+        document.getElementById('p2').innerHTML = "Player 2: Ball Type ?";
+        this.gameState.player1Ball = "";
+        this.gameState.player2Ball = "";
+    }
+
+    render() {
+        requestAnimationFrame(() => {
+            this.render();
+        });
+
+        this.objects.forEach((object) => {
+            if (object instanceof Obj)
+                object.update();
+        });
+
+        this.collisions();
+        this.checkWin();
+        this.turnProcess();
+
+        globalcontrols.moveForward(keyForward ? 0.5 : (keyBackward ? -0.5 : 0));
+        globalcontrols.moveRight(keyRight ? 0.5 : (keyLeft ? -0.5 : 0));
+        globalcontrols.setZero(keyRotate ? 0.01 : (keyAntirotate ? -0.01 : 0));
+
+        this.renderer.render(this.scene, this.camera);
+    }
+
+    /* função que adiciona "mesh" à cena e em especial às que estão
+     * pendentes aguarda o loading
+     */
+    async add(mesh) {
+        if (Array.isArray(mesh)) {
+            for (var index in mesh) {
+                this.objects.push(mesh[index]);
+                if (mesh[index] instanceof Obj)
+                    this.scene.add(mesh[index].getMesh());
+
+                else if (mesh[index] instanceof Light)
+                    this.scene.add(mesh[index].getLight())
+                else if (mesh[index].getMesh() instanceof Promise) {
+                    let t = await mesh[index].getMesh();
+                    mesh[index].mesh = t;
+                    mesh[index].setup();
+                    this.scene.add(t);
+                }
+            }
+        } else {
+            this.objects.push(mesh);
+            this.scene.add(mesh.getMesh());
+        }
+    }
+}
+
+
+let app = new Application();
+
+objs = {};
+objs.moonlight = new MoonLight({x:0,y:500,z:0});
+objs.floor = new Floor({x:0,y:0,z:0});
+objs.poolTable = new PoolTable({x:0,y:0,z:0});
+objs.bola = new Branca({x:0, y:27, z:22}, "#fff", 2, "solid",0);
+objs.ballOne = new Branca({x: -8, y: 27, z: -38.5}, "./models/ball1.jpg", 2, "solid", 1);
+objs.ballTwo = new Branca({x: 6.5, y: 27, z: -34.4}, "./models/ball2.png", 2, "solid", 2);
+objs.ballThree = new Branca({x: -4.5, y: 27, z: -30.9}, "./models/ball3.jpg", 2, "solid", 3);
+objs.ballFour = new Branca({x: -2.5, y: 27, z: -27.2}, "./models/ball4.png", 2, "solid", 4);
+objs.ballFive = new Branca({x: 0, y: 27, z: -24}, "./models/ball5.png", 2, "solid", 5);
+objs.ballSix = new Branca({x: -4, y: 27, z: -38.5}, "./models/ball6.png", 2, "solid", 6);
+objs.ballSeven = new Branca({x: 2.2, y: 27, z: -34.4}, "./models/ball7.jpg", 2, "solid", 7);
+objs.ballEight = new Branca({x: 0, y: 27, z: -30.9}, "./models/ball8.jpg", 2, "solid", 8);
+objs.ballNine = new Branca({x: 2.5, y: 27, z: -27.2}, "./models/ball9.png", 2, "stripe", 9);
+objs.ballTen = new Branca({x: 0, y: 27, z: -38.5}, "./models/ball10.png", 2, "stripe", 10);
+objs.ballEleven = new Branca({x: -2.2, y: 27, z: -34.4}, "./models/ball11.png", 2, "stripe", 11);
+objs.ballTwelve = new Branca({x: 4.5, y: 27, z: -30.9}, "./models/ball12.png", 2, "stripe", 12);
+objs.ballThirteen = new Branca({x: 4, y: 27, z: -38.5}, "./models/ball13.jpg", 2, "stripe", 13);
+objs.ballFourteen = new Branca({x: -6.5, y: 27, z: -34.4}, "./models/ball14.png", 2, "stripe", 14);
+objs.ballFifteen = new Branca({x: 8, y: 27, z: -38.5}, "./models/ball15.png", 2, "stripe", 15);
+objs.cue = new Cue({x:0,y:27,z:0, branca: objs.bola});
+objs.tLight = new tableLight({x:0, y: 90, z:0}, "#fff");
+objs.tLight1 = new tableLight({x: -24, y: 35, z: -47}, "#FF0000");
+objs.tLight2 = new tableLight({x: 24, y: 35, z: 47}, "#0000FF");
+objs.hole = new Hole({x:-24, y:27, z:0});
+objs.hole1 = new Hole({x:24, y:27, z:0});
+objs.hole2 = new Hole({x:22, y:27, z:47});
+objs.hole3 = new Hole({x:-22, y:27, z:47});
+objs.hole4 = new Hole({x:22, y:27, z:-47});
+objs.hole5 = new Hole({x:-22, y:27, z:-47});
+objs.seagull = new Seagull({x: 0, y: 160, z: 0});
+objs.blimp = new Blimp({x: 100, y: 1200, z: -600});
+objs.bonfire = new Bonfire({x: 100, y: 0, z: 0});
+objs.cave = new Cave({x: 350, y: 0, z: 0});
+
+// Adicionar Árvores à cena aleatoriamente
+for (let i = 0; i < 100; i++) {
+    let cX = 0,
+        cY = 0,
+        cZ = 0;
+
+    // Previne criação de Árvores no ponto (0,0,0) com lado 80
+    while (cX < 130 && cX > -130 && cZ < 130 && cZ > -130) {
+        cX = 1000 * Math.random() - 500;
+        cZ = 1000 * Math.random() - 500;
+    }
+
+
+    objs["Tree" + i] = new Tree({
+        x: cX,
+        y: 0,
+        z: cZ,
+    });
+}
+app.add(Object.values(objs));
+  </script>
+</body>
+
+</html>

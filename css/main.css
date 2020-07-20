@@ -1,0 +1,37 @@
+#p1 {
+    position: absolute;
+    top: 25px;
+    left: 100px;
+	width: 100%;
+	text-align: left;
+	z-index: 100;
+    display:inline;
+    font-size: 30px;
+    color: #fff;
+}
+
+#p2 {
+    position: absolute;
+    top: 25px;
+    width: 100%;
+    right: 100px;
+	text-align: right;
+	z-index: 100;
+    display:inline;
+    font-size: 30px;
+    color: #fff;
+}
+
+.start {
+    z-index: 255;
+}
+
+#victory{
+    position: absolute;
+    width: 100%;
+    text-align: center;
+    display: hidden;
+    z-index: 100;
+    font-size: 30px;
+    color: #fff;
+}
